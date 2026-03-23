@@ -5,7 +5,7 @@ import time
 
 # ── API KEY — hardcodeada, no necesitas ingresarla cada vez ──────────────────
 GEMINI_API_KEY = "AIzaSyDqLAODMX1RqN2ZBTMPfxdVhcqtaGsv3tM"
-GEMINI_MODEL   = "gemini-1.5-flash"   # mayor cuota en free tier que 2.0-flash
+
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -316,35 +316,78 @@ Noticia:
 """
 
 # ── Gemini call con retry automático ─────────────────────────────────────────
-def call_gemini(prompt: str, content: str, retries: int = 3) -> str:
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    full_prompt = prompt + content
-    for attempt in range(retries):
+# Nombres de modelo a intentar en orden (el SDK nuevo es sensible al nombre exacto)
+MODEL_CANDIDATES = [
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-latest",
+    "models/gemini-1.5-flash",
+    "gemini-1.5-flash-001",
+    "gemini-2.0-flash-lite",   # alternativa si 1.5 no está disponible
+]
+
+def _try_models(client, full_prompt: str) -> str:
+    """Intenta cada nombre de modelo hasta encontrar uno que funcione."""
+    last_err = None
+    for model_name in MODEL_CANDIDATES:
         try:
             response = client.models.generate_content(
-                model=GEMINI_MODEL,
+                model=model_name,
                 contents=full_prompt,
             )
+            # Guarda el modelo que funcionó para futuras llamadas
+            st.session_state["working_model"] = model_name
             return response.text.strip()
         except Exception as e:
             err_str = str(e)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                # Extrae el tiempo de espera si está disponible
-                wait = 60
-                if "retryDelay" in err_str:
-                    import re
-                    m = re.search(r"'retryDelay':\s*'(\d+)s'", err_str)
-                    if m:
-                        wait = int(m.group(1)) + 5
+            if "404" in err_str or "NOT_FOUND" in err_str:
+                last_err = e
+                continue   # prueba el siguiente
+            raise          # otro error → propagar
+    raise last_err
+
+def call_gemini(prompt: str, content: str, retries: int = 3) -> str:
+    import re as _re
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    full_prompt = prompt + content
+
+    # Usa el modelo que ya funcionó antes si está guardado
+    working = st.session_state.get("working_model")
+
+    for attempt in range(retries):
+        try:
+            if working:
+                response = client.models.generate_content(
+                    model=working,
+                    contents=full_prompt,
+                )
+                return response.text.strip()
+            else:
+                return _try_models(client, full_prompt)
+        except Exception as e:
+            err_str = str(e)
+            if "404" in err_str or "NOT_FOUND" in err_str:
+                # El modelo guardado ya no funciona, resetea y busca de nuevo
+                st.session_state.pop("working_model", None)
+                working = None
                 if attempt < retries - 1:
-                    with st.spinner(f"⏳ Límite de cuota alcanzado — esperando {wait}s antes de reintentar ({attempt+1}/{retries})..."):
+                    continue
+                raise Exception(
+                    "No se encontró un modelo Gemini disponible. "
+                    "Verifica tu API Key en [aistudio.google.com](https://aistudio.google.com)."
+                )
+            elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                wait = 60
+                m = _re.search(r"'retryDelay':\s*'(\d+)s'", err_str)
+                if m:
+                    wait = int(m.group(1)) + 5
+                if attempt < retries - 1:
+                    with st.spinner(f"⏳ Cuota alcanzada — reintentando en {wait}s ({attempt+1}/{retries})..."):
                         time.sleep(wait)
                     continue
                 else:
                     raise Exception(
-                        f"**Cuota agotada.** Gemini 1.5 Flash permite ~15 requests/minuto en free tier.\n\n"
-                        f"Espera 1 minuto e intenta de nuevo, o crea una nueva API Key en "
-                        f"[aistudio.google.com](https://aistudio.google.com)."
+                        f"Cuota agotada. Espera {wait}s e intenta de nuevo, "
+                        f"o crea una nueva API Key en [aistudio.google.com](https://aistudio.google.com)."
                     )
             else:
                 raise
@@ -392,7 +435,7 @@ st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 # ── Pills de info ─────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div style='margin-bottom:20px'>
-    <span class="bb-pill">MODELO <span>{GEMINI_MODEL}</span></span>
+    <span class="bb-pill">MODELO <span>GEMINI 1.5 FLASH</span></span>
     <span class="bb-pill">LÍMITE <span>15 REQ/MIN</span></span>
     <span class="bb-pill">CUOTA DIARIA <span>1,500</span></span>
     <span class="bb-pill">COSTO <span>$0.00</span></span>
