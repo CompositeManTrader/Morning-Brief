@@ -268,25 +268,27 @@ Noticias a resumir:
 PROMPT_MOVERS = """Eres un redactor financiero senior para una mesa institucional en México. Traduces y reformateas los movers de CNBC al formato de nuestro Morning Brief.
 
 FORMATO EXACTO POR EMPRESA (sigue esto al pie de la letra):
-**TICKER**, Nombre Completo de la Empresa, subió/bajó X.XX%. [Razón del movimiento en 1-2 oraciones, máximo 25 palabras adicionales].
+TICKER, Nombre Completo de la Empresa, subió/bajó X.XX%. [Explicación del catalizador en lenguaje fluido y preciso, entre 20 y 30 palabras].
 
 REGLAS:
-1. El TICKER siempre en negritas markdown: **TICKER**
+1. El ticker va SIN negritas, SIN asteriscos, SIN ningún formato especial. Texto plano.
 2. Coma después del ticker, luego el nombre completo de la empresa.
-3. "subió" si el precio aumentó, "bajó" si disminuyó. Siempre seguido de la variación con dos decimales y "%".
+3. "subió" si el precio aumentó, "bajó" si disminuyó. Seguido de la variación con dos decimales y "%".
 4. Usa punto decimal, no coma: 1.25% correcto, 1,25% incorrecto.
 5. Cifras monetarias: "US$" antes del número. Ejemplo: US$2.40.
-6. Después del porcentaje, punto y seguido: explica brevemente el catalizador.
+6. Después del porcentaje, punto y seguido: explica el catalizador con redacción fluida y rica. Menciona el banco/analista si aplica, la acción corporativa, el dato o el evento que lo mueve.
 7. Una línea en blanco entre cada empresa.
-8. NADA en negritas excepto el ticker.
+8. Sin negritas, sin cursivas, sin asteriscos en ninguna parte del texto.
 9. Sin encabezados, sin numeración, sin texto extra.
 
-EJEMPLOS DE OUTPUT CORRECTO:
-**CMG**, Chipotle Mexican Grill, subió 1.00%. Avanzó luego de que Mizuho mejoró su recomendación a outperform, por expectativas de mejor crecimiento comparable y mayor visibilidad en márgenes.
+EJEMPLOS DE OUTPUT CORRECTO (observa: sin asteriscos, sin negritas, texto plano):
+CMG, Chipotle Mexican Grill, subió 1.00%. Avanzó luego de que Mizuho mejoró su recomendación a outperform, por expectativas de mejor crecimiento comparable y mayor visibilidad en márgenes.
 
-**NVDA**, Nvidia, subió 4.20%. Impulsada por la presentación de su nueva línea de chips Blackwell Ultra, que superó las expectativas del mercado en capacidad de procesamiento para IA.
+NVDA, Nvidia, subió 4.20%. Impulsada por la presentación de su nueva línea de chips Blackwell Ultra, que superó las expectativas del mercado en capacidad de procesamiento para inteligencia artificial.
 
-**TSLA**, Tesla, bajó 3.50%. Retrocedió tras reportar entregas del primer trimestre por debajo de las estimaciones de Wall Street, con 336,000 unidades versus 390,000 esperadas.
+TSLA, Tesla, bajó 3.50%. Retrocedió tras reportar entregas del primer trimestre muy por debajo de las estimaciones de Wall Street, con 336,000 unidades frente a las 390,000 esperadas por el consenso.
+
+GS, Goldman Sachs, subió 2.10%. Rebotó luego de que la firma anunció una recompra de acciones por US$30,000 millones y reportó ingresos en banca de inversión superiores a lo previsto por los analistas.
 
 Texto CNBC a procesar:
 """
@@ -296,15 +298,18 @@ PROMPT_BMV = """Eres un redactor financiero senior para una mesa institucional e
 TAREA: Resume UNA noticia de empresa BMV o BIVA para el Morning Brief diario.
 
 FORMATO:
-- Si la noticia tiene ticker: inicia con el ticker en negritas (**TICKER**), luego el resumen.
+- Si la noticia tiene ticker: inicia con el ticker SIN negritas SIN asteriscos, seguido de coma y el resumen.
 - Si no hay ticker: ve directo al resumen.
 - Entre 30 y 45 palabras. Ni más corto ni más largo.
-- Incluye el dato/cifra más relevante de la noticia.
-- Tono directo, estilo Bloomberg. Una sola oración o dos cortas.
-- SOLO el resumen. Sin introducción, sin "Resumen:", sin texto extra.
+- Incluye el dato o cifra más relevante de la noticia.
+- Tono directo, estilo Bloomberg. Redacción fluida, una o dos oraciones cortas.
+- NADA en negritas, NADA en cursivas, NADA con asteriscos. Texto plano únicamente.
+- SOLO el resumen. Sin "Resumen:", sin introducción, sin texto extra.
 
-EJEMPLO DE OUTPUT CORRECTO:
-**BIMBOA**, Grupo Bimbo reportó ingresos del 1T25 por US$5,200 millones, un alza de 4.3% anual impulsada por precios en Norteamérica, aunque el margen EBITDA se contrajo 80 puntos base por mayores costos de trigo.
+EJEMPLO DE OUTPUT CORRECTO (observa: sin asteriscos, texto plano):
+BIMBOA, Grupo Bimbo reportó ingresos del 1T25 por US$5,200 millones, un alza de 4.3% anual impulsada por mayores precios en Norteamérica, aunque el margen EBITDA se contrajo 80 puntos base por costos de trigo.
+
+GFNORTEO, Banorte reportó una utilidad neta de MX$12,300 millones en el 1T25, crecimiento de 8.2% anual, apoyado por expansión de cartera de crédito y mejora en el margen financiero neto.
 
 Noticia:
 """
