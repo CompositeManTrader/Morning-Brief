@@ -4,11 +4,7 @@ from datetime import date
 import time
 
 # ── CONFIGURACIÓN ─────────────────────────────────────────────────────────────
-# Obtén tu key GRATIS en: console.groq.com  (crea cuenta → API Keys → Create)
-GROQ_API_KEY = "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"   # ← reemplaza con tu key de Groq
-
-# Modelo: llama-3.3-70b-versatile — el mejor en calidad/velocidad en Groq free tier
-# Límites free tier: 30 req/min, 14,400 req/día → más que suficiente
+# API Key se captura en la interfaz — nunca se guarda en el código ni en GitHub
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -316,7 +312,7 @@ Noticia:
 
 # ── Groq call — rápido, sin reintentos largos ─────────────────────────────────
 def call_groq(prompt: str, content: str) -> str:
-    client = Groq(api_key=GROQ_API_KEY)
+    client = Groq(api_key=st.session_state["groq_api_key"])
     response = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[
@@ -364,8 +360,33 @@ st.markdown(f"""
 
 st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
+# ── API KEY INPUT BAR ─────────────────────────────────────────────────────────
+if "groq_api_key" not in st.session_state:
+    st.session_state["groq_api_key"] = ""
+
+col_key, col_status = st.columns([3, 1])
+with col_key:
+    st.markdown('<div class="bb-label">GROQ API KEY — pega tu key y presiona Enter (console.groq.com → API Keys)</div>', unsafe_allow_html=True)
+    key_input = st.text_input(
+        "api_key_field",
+        value=st.session_state["groq_api_key"],
+        type="password",
+        placeholder="gsk_...",
+        label_visibility="collapsed",
+        key="api_key_input",
+    )
+    if key_input:
+        st.session_state["groq_api_key"] = key_input
+
+with col_status:
+    st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
+    if st.session_state["groq_api_key"]:
+        st.markdown('<div style="font-family:monospace;font-size:0.72rem;color:#00d084;padding:8px 0;letter-spacing:1px">✓ KEY ACTIVA</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="font-family:monospace;font-size:0.72rem;color:#ff4444;padding:8px 0;letter-spacing:1px">⚠ SIN KEY</div>', unsafe_allow_html=True)
+
 st.markdown("""
-<div style='margin-bottom:20px'>
+<div style='margin:12px 0 20px 0'>
     <span class="bb-pill">ENGINE <span>GROQ</span></span>
     <span class="bb-pill">MODELO <span>LLAMA-3.3-70B</span></span>
     <span class="bb-pill">VELOCIDAD <span>~2 SEG</span></span>
@@ -413,7 +434,9 @@ with tab1:
             st.rerun()
 
     if gen_intl:
-        if not intl_input.strip():
+        if not st.session_state.get("groq_api_key"):
+            st.error("⚠ Pega tu Groq API Key en el campo de arriba.")
+        elif not intl_input.strip():
             st.warning("Pega al menos una noticia.")
         else:
             with st.spinner("Generando..."):
@@ -470,7 +493,9 @@ with tab2:
             st.rerun()
 
     if gen_movers:
-        if not movers_input.strip():
+        if not st.session_state.get("groq_api_key"):
+            st.error("⚠ Pega tu Groq API Key en el campo de arriba.")
+        elif not movers_input.strip():
             st.warning("Pega el texto de movers CNBC.")
         else:
             with st.spinner("Generando..."):
@@ -569,23 +594,26 @@ with tab3:
             st.rerun()
 
     if gen_bmv:
-        filled = [(i, t) for i, t in enumerate(bmv_texts) if t.strip()]
-        if not filled:
-            st.warning("Pega al menos una noticia.")
+        if not st.session_state.get("groq_api_key"):
+            st.error("⚠ Pega tu Groq API Key en el campo de arriba.")
         else:
-            progress = st.progress(0)
-            status   = st.empty()
-            t_total  = time.time()
-            for idx, (i, text) in enumerate(filled):
-                status.markdown(f'<div class="bb-label">PROCESANDO NOTICIA {i+1}/{len(filled)}...</div>', unsafe_allow_html=True)
-                progress.progress((idx + 1) / len(filled))
-                try:
-                    st.session_state[f"bmv_result_{i}"] = call_groq(PROMPT_BMV, text)
-                except Exception as e:
-                    st.session_state[f"bmv_result_{i}"] = f"ERROR: {e}"
-            elapsed = round(time.time() - t_total, 1)
-            progress.empty()
-            status.markdown(f'<div class="bb-label" style="color:#00d084">✓ {len(filled)} RESÚMENES EN {elapsed}s</div>', unsafe_allow_html=True)
+            filled = [(i, t) for i, t in enumerate(bmv_texts) if t.strip()]
+            if not filled:
+                st.warning("Pega al menos una noticia.")
+            else:
+                progress = st.progress(0)
+                status   = st.empty()
+                t_total  = time.time()
+                for idx, (i, text) in enumerate(filled):
+                    status.markdown(f'<div class="bb-label">PROCESANDO NOTICIA {i+1}/{len(filled)}...</div>', unsafe_allow_html=True)
+                    progress.progress((idx + 1) / len(filled))
+                    try:
+                        st.session_state[f"bmv_result_{i}"] = call_groq(PROMPT_BMV, text)
+                    except Exception as e:
+                        st.session_state[f"bmv_result_{i}"] = f"ERROR: {e}"
+                elapsed = round(time.time() - t_total, 1)
+                progress.empty()
+                status.markdown(f'<div class="bb-label" style="color:#00d084">✓ {len(filled)} RESÚMENES EN {elapsed}s</div>', unsafe_allow_html=True)
 
     any_result = any(f"bmv_result_{i}" in st.session_state for i in range(st.session_state["bmv_count"]))
     if any_result:
