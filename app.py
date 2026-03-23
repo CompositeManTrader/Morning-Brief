@@ -1,367 +1,650 @@
 import streamlit as st
 from google import genai
 from datetime import date
+import time
+
+# ── API KEY — hardcodeada, no necesitas ingresarla cada vez ──────────────────
+GEMINI_API_KEY = "AIzaSyDqLAODMX1RqN2ZBTMPfxdVhcqtaGsv3tM"
+GEMINI_MODEL   = "gemini-1.5-flash"   # mayor cuota en free tier que 2.0-flash
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Morning Brief",
-    page_icon="📰",
+    page_icon="▶",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
+# ── Bloomberg-style CSS ───────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
 
-html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
+/* ── Global reset ── */
+html, body, [class*="css"], .stApp {
+    background-color: #0d0d0d !important;
+    color: #e0e0e0 !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+}
 
-.main-header {
-    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
-    border-radius: 16px;
-    padding: 36px 40px;
-    margin-bottom: 32px;
-    border-left: 6px solid #c9a84c;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+/* ── Hide streamlit chrome ── */
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding: 0 2rem 2rem 2rem !important; max-width: 1400px; }
+
+/* ── Top bar ── */
+.bb-topbar {
+    background: #0a0a0a;
+    border-bottom: 2px solid #ff6600;
+    padding: 0;
+    margin: 0 -2rem 0 -2rem;
+    display: flex;
+    align-items: stretch;
 }
-.main-header h1 {
-    font-family: 'Playfair Display', serif;
-    font-size: 2.8rem;
-    font-weight: 900;
-    color: #f0e6d0;
-    margin: 0 0 4px 0;
+.bb-logo {
+    background: #ff6600;
+    color: #000;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: 1.05rem;
+    padding: 10px 20px;
+    letter-spacing: 1px;
+    white-space: nowrap;
 }
-.main-header .subtitle {
-    color: #c9a84c;
-    font-size: 0.95rem;
+.bb-title {
+    color: #ff6600;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.85rem;
     font-weight: 500;
     letter-spacing: 2px;
     text-transform: uppercase;
+    padding: 12px 24px;
+    border-right: 1px solid #222;
 }
-.section-title {
-    font-family: 'Playfair Display', serif;
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: #1a1a2e;
-    border-bottom: 2px solid #c9a84c;
+.bb-date {
+    color: #666;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    padding: 12px 20px;
+    margin-left: auto;
+}
+
+/* ── Ticker tape ── */
+.bb-ticker {
+    background: #111;
+    border-bottom: 1px solid #222;
+    padding: 6px 2rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    color: #444;
+    letter-spacing: 1px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+.bb-ticker span { color: #ff6600; margin-right: 4px; }
+.bb-ticker .up { color: #00d084; }
+.bb-ticker .dn { color: #ff4444; }
+.bb-ticker .sep { color: #333; margin: 0 16px; }
+
+/* ── Section headers ── */
+.bb-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 24px 0 12px 0;
     padding-bottom: 8px;
-    margin-bottom: 16px;
+    border-bottom: 1px solid #222;
 }
-.stButton > button {
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
-    color: #f0e6d0;
-    border: 1px solid #c9a84c;
-    border-radius: 8px;
+.bb-section-label {
+    background: #ff6600;
+    color: #000;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 3px 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+.bb-section-title {
+    color: #fff;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
     font-weight: 500;
-    padding: 10px 24px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+.bb-section-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, #333, transparent);
+}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    background: #111 !important;
+    border-bottom: 1px solid #333 !important;
+    border-radius: 0 !important;
+    gap: 0 !important;
+    padding: 0 !important;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent !important;
+    border-radius: 0 !important;
+    border-right: 1px solid #222 !important;
+    color: #555 !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 0.75rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 1px !important;
+    text-transform: uppercase !important;
+    padding: 12px 24px !important;
+    transition: all 0.15s !important;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    background: #1a1a1a !important;
+    color: #ff6600 !important;
+}
+.stTabs [aria-selected="true"] {
+    background: #1a1a1a !important;
+    color: #ff6600 !important;
+    border-bottom: 2px solid #ff6600 !important;
+}
+.stTabs [data-baseweb="tab-panel"] {
+    background: transparent !important;
+    padding: 0 !important;
+}
+
+/* ── Input areas ── */
+.stTextArea textarea {
+    background: #0f0f0f !important;
+    border: 1px solid #2a2a2a !important;
+    border-left: 3px solid #333 !important;
+    border-radius: 2px !important;
+    color: #ccc !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 0.8rem !important;
+    line-height: 1.7 !important;
+    caret-color: #ff6600 !important;
+    resize: vertical !important;
+}
+.stTextArea textarea:focus {
+    border-color: #333 !important;
+    border-left-color: #ff6600 !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+.stTextArea textarea::placeholder { color: #333 !important; }
+
+/* ── Output area (resultado) ── */
+.output-area textarea {
+    background: #070707 !important;
+    border: 1px solid #1e1e1e !important;
+    border-left: 3px solid #ff6600 !important;
+    color: #d4d4d4 !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 0.8rem !important;
+    line-height: 1.8 !important;
+}
+
+/* ── Buttons ── */
+.stButton > button {
+    background: #ff6600 !important;
+    color: #000 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 1.5px !important;
+    text-transform: uppercase !important;
+    padding: 10px 28px !important;
+    transition: all 0.15s !important;
 }
 .stButton > button:hover {
-    background: linear-gradient(135deg, #c9a84c, #b8922a);
-    color: #0a0a0a;
+    background: #e55a00 !important;
+    color: #000 !important;
 }
-section[data-testid="stSidebar"] { background: #0a0a0a; }
-section[data-testid="stSidebar"] * { color: #d4c9b0 !important; }
-section[data-testid="stSidebar"] .stTextInput input {
-    background: #1a1a2e;
-    border: 1px solid #c9a84c;
-    color: #f0e6d0 !important;
-    border-radius: 8px;
+.stButton > button:active {
+    background: #cc4f00 !important;
 }
-.stTabs [data-baseweb="tab-list"] {
-    gap: 4px; background: #f0ebe0; border-radius: 10px; padding: 4px;
+
+/* ── Sidebar (collapsed, not needed) ── */
+section[data-testid="stSidebar"] { display: none; }
+
+/* ── Labels ── */
+.bb-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    color: #444;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
 }
-.stTabs [data-baseweb="tab"] { border-radius: 8px; font-weight: 500; }
-.stTabs [aria-selected="true"] { background: #1a1a2e !important; color: #c9a84c !important; }
-.copy-hint { font-size: 0.75rem; color: #999; margin-top: 4px; font-style: italic; }
-.status-ok {
-    display: inline-block; background: #d4edda; color: #155724;
-    border-radius: 20px; padding: 2px 12px; font-size: 0.8rem; font-weight: 500;
+
+/* ── Info pills ── */
+.bb-pill {
+    display: inline-block;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    color: #666;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    padding: 3px 10px;
+    margin-right: 6px;
+    letter-spacing: 1px;
 }
-.status-err {
-    display: inline-block; background: #f8d7da; color: #721c24;
-    border-radius: 20px; padding: 2px 12px; font-size: 0.8rem; font-weight: 500;
+.bb-pill span { color: #ff6600; }
+
+/* ── Copy hint ── */
+.bb-copy-hint {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    color: #333;
+    margin-top: 6px;
+    letter-spacing: 0.5px;
+}
+.bb-copy-hint::before { content: "▶ "; color: #ff6600; }
+
+/* ── Expander (BMV cards) ── */
+.streamlit-expanderHeader {
+    background: #111 !important;
+    border: 1px solid #222 !important;
+    border-radius: 0 !important;
+    color: #888 !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 0.75rem !important;
+}
+.streamlit-expanderContent {
+    background: #0a0a0a !important;
+    border: 1px solid #1a1a1a !important;
+    border-top: none !important;
+}
+
+/* ── Divider ── */
+hr { border-color: #1e1e1e !important; }
+
+/* ── Spinner ── */
+.stSpinner > div { border-top-color: #ff6600 !important; }
+
+/* ── Alert / error / warning ── */
+.stAlert { border-radius: 0 !important; font-family: 'IBM Plex Mono', monospace !important; font-size: 0.78rem !important; }
+
+/* ── Progress bar ── */
+.stProgress > div > div { background-color: #ff6600 !important; }
+
+/* ── Success ── */
+.element-container .stSuccess {
+    background: #0a1a0a !important;
+    border-left: 3px solid #00d084 !important;
+    color: #00d084 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 PROMPT_INTL = """Eres un redactor financiero experto para clientes institucionales.
-Recibirás noticias financieras internacionales separadas por bullets (•, -, *, o números).
+Recibirás noticias financieras internacionales. Cada noticia puede estar separada por bullets de cualquier tipo: •, -, *, >, números seguidos de punto o paréntesis, o simplemente saltos de línea.
 Reglas ESTRICTAS:
-- Detecta cada bullet/ítem.
-- Para CADA bullet escribe UN resumen en español de MENOS DE 40 PALABRAS.
-- Usa "•" al inicio de cada resumen.
-- Lenguaje claro, directo y profesional.
-- NO añadas introducción, títulos ni conclusión. SOLO los bullets resumidos.
+- Detecta cada noticia/ítem individual.
+- Para CADA noticia escribe UN resumen en español de MENOS DE 40 PALABRAS.
+- Inicia cada resumen con "•" seguido de espacio.
+- Lenguaje claro, directo y profesional, estilo bloomberg.
+- NO añadas introducción, títulos ni conclusión. SOLO los bullets resumidos, uno por línea.
 
 Noticias:
 """
 
 PROMPT_MOVERS = """Eres un redactor financiero experto para clientes institucionales en México.
 Recibirás texto en inglés sobre movers de CNBC. Tradúcelo aplicando EXACTAMENTE estas reglas:
-1. Cada párrafo inicia con el TICKER en negritas markdown (**TICKER**), coma, nombre de empresa, luego si subió o bajó con su variación porcentual.
-2. Máximo 30 palabras por párrafo.
+1. Cada bloque inicia con el TICKER en negritas markdown (**TICKER**), coma, nombre de empresa, luego si subió o bajó con su variación porcentual.
+2. Máximo 30 palabras por bloque.
 3. Cifras de moneda inician con "US$".
 4. En variaciones porcentuales reemplaza "," por ".".
-5. SOLO el ticker va en negritas. Nada más.
-6. Sin encabezados ni texto extra. Solo los párrafos, uno por empresa.
+5. SOLO el ticker va en negritas (**TICKER**), nada más en negritas.
+6. Separa cada empresa con una línea en blanco.
+7. Sin encabezados ni texto extra. Solo los bloques.
 
 Texto CNBC:
 """
 
 PROMPT_BMV = """Eres un redactor financiero experto para clientes institucionales en México.
 Recibirás UNA noticia de una empresa de la BMV o BIVA.
-Escribe un resumen en español, claro y directo, de MENOS DE 50 PALABRAS.
+Escribe un resumen en español, claro y directo, de MENOS DE 50 PALABRAS, estilo Bloomberg.
 Menciona el ticker si aparece en el texto.
 Sin introducción ni texto extra. Solo el resumen.
 
 Noticia:
 """
 
+# ── Gemini call con retry automático ─────────────────────────────────────────
+def call_gemini(prompt: str, content: str, retries: int = 3) -> str:
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    full_prompt = prompt + content
+    for attempt in range(retries):
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=full_prompt,
+            )
+            return response.text.strip()
+        except Exception as e:
+            err_str = str(e)
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                # Extrae el tiempo de espera si está disponible
+                wait = 60
+                if "retryDelay" in err_str:
+                    import re
+                    m = re.search(r"'retryDelay':\s*'(\d+)s'", err_str)
+                    if m:
+                        wait = int(m.group(1)) + 5
+                if attempt < retries - 1:
+                    with st.spinner(f"⏳ Límite de cuota alcanzado — esperando {wait}s antes de reintentar ({attempt+1}/{retries})..."):
+                        time.sleep(wait)
+                    continue
+                else:
+                    raise Exception(
+                        f"**Cuota agotada.** Gemini 1.5 Flash permite ~15 requests/minuto en free tier.\n\n"
+                        f"Espera 1 minuto e intenta de nuevo, o crea una nueva API Key en "
+                        f"[aistudio.google.com](https://aistudio.google.com)."
+                    )
+            else:
+                raise
 
-# ── Gemini call ───────────────────────────────────────────────────────────────
-def call_gemini(api_key: str, prompt: str, content: str) -> str:
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt + content,
-    )
-    return response.text.strip()
+# ── TOP BAR ──────────────────────────────────────────────────────────────────
+today = date.today()
+days_es = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO", "DOMINGO"]
+months_es = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"]
+day_name  = days_es[today.weekday()]
+month_str = months_es[today.month - 1]
+date_str  = f"{day_name} {today.day:02d} {month_str} {today.year}"
 
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("## ⚙️ Configuración")
-    st.markdown("---")
-
-    api_key_default = ""
-    try:
-        api_key_default = st.secrets.get("GEMINI_API_KEY", "")
-    except Exception:
-        pass
-
-    if api_key_default:
-        api_key = api_key_default
-        st.markdown('<span class="status-ok">✓ API Key cargada</span>', unsafe_allow_html=True)
-    else:
-        api_key = st.text_input(
-            "Google Gemini API Key",
-            type="password",
-            placeholder="AIzaSy...",
-            help="Gratis en aistudio.google.com",
-        )
-        if api_key:
-            st.markdown('<span class="status-ok">✓ API Key ingresada</span>', unsafe_allow_html=True)
-        else:
-            st.markdown('<span class="status-err">⚠ Falta API Key</span>', unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown(f"**Fecha:** {date.today().strftime('%d %B %Y')}")
-    st.markdown("**Modelo:** Gemini 1.5 Flash *(gratuito)*")
-    st.markdown("---")
-    st.markdown("### 🔑 Obtener API Key gratis")
-    st.markdown("""
-1. Ve a [aistudio.google.com](https://aistudio.google.com)
-2. Inicia sesión con Google
-3. **Get API Key → Create API Key**
-4. Pégala arriba ↑
-
-✅ **100% gratis · 1,500 req/día**
-""")
-    st.markdown("---")
-    st.markdown("### 📋 Flujo diario")
-    st.markdown("""
-1. Abre la app  
-2. Pega el contenido en cada pestaña  
-3. Genera resumen  
-4. Copia → pega en tu Morning Brief  
-""")
-
-# ── Header ────────────────────────────────────────────────────────────────────
 st.markdown(f"""
-<div class="main-header">
-    <div class="subtitle">Institutional Morning Brief</div>
-    <h1>📰 Morning Brief</h1>
-    <div style="color:#8899aa; font-size:0.9rem; margin-top:8px;">
-        {date.today().strftime('%A, %d de %B de %Y')}
-    </div>
+<div class="bb-topbar">
+    <div class="bb-logo">▶ BRIEF</div>
+    <div class="bb-title">MORNING BRIEF &nbsp;·&nbsp; RENTA VARIABLE</div>
+    <div class="bb-date">{date_str} &nbsp;|&nbsp; CDMX</div>
+</div>
+<div class="bb-ticker">
+    <span>INDICES</span>
+    S&P 500 <span class="up">▲</span>&nbsp;
+    <span class="sep">|</span>
+    NASDAQ <span class="up">▲</span>&nbsp;
+    <span class="sep">|</span>
+    DOW <span class="up">▲</span>&nbsp;
+    <span class="sep">|</span>
+    IPC <span class="up">▲</span>&nbsp;
+    <span class="sep">|</span>
+    VIX <span class="dn">▼</span>&nbsp;
+    <span class="sep">|</span>
+    DXY <span class="dn">▼</span>&nbsp;
+    <span class="sep">|</span>
+    WTI <span class="up">▲</span>&nbsp;
+    <span class="sep">|</span>
+    GOLD <span class="up">▲</span>&nbsp;
+    <span class="sep">|</span>
+    MXN/USD &nbsp;
+    <span class="sep">||</span>
+    <span>MODELO</span> GEMINI 1.5 FLASH &nbsp;·&nbsp; FREE TIER
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+# ── Pills de info ─────────────────────────────────────────────────────────────
+st.markdown(f"""
+<div style='margin-bottom:20px'>
+    <span class="bb-pill">MODELO <span>{GEMINI_MODEL}</span></span>
+    <span class="bb-pill">LÍMITE <span>15 REQ/MIN</span></span>
+    <span class="bb-pill">CUOTA DIARIA <span>1,500</span></span>
+    <span class="bb-pill">COSTO <span>$0.00</span></span>
 </div>
 """, unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs([
-    "🌐 Noticias Internacionales",
-    "📊 Movers CNBC",
-    "🇲🇽 BMV / BIVA",
+    "  🌐  INTERNACIONALES  ",
+    "  📊  MOVERS CNBC  ",
+    "  🇲🇽  BMV / BIVA  ",
 ])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 1 — Noticias Internacionales
 # ─────────────────────────────────────────────────────────────────────────────
 with tab1:
-    st.markdown('<div class="section-title">🌐 Noticias Financieras Internacionales</div>', unsafe_allow_html=True)
-    st.markdown("Pega las noticias con bullets (•, -, *, números). **Menos de 40 palabras** por bullet.")
+    st.markdown("""
+    <div class="bb-section">
+        <div class="bb-section-label">01</div>
+        <div class="bb-section-title">Noticias Financieras Internacionales</div>
+        <div class="bb-section-line"></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="bb-label">INPUT — PEGA LAS NOTICIAS (con bullets •, -, *, números, o una por línea)</div>', unsafe_allow_html=True)
 
     intl_input = st.text_area(
-        "Noticias internacionales",
-        height=260,
-        placeholder="• Fed mantiene tasas sin cambio tras reunión de marzo...\n• El oro alcanza nuevo máximo histórico por encima de US$3,000...\n- Apple reporta ganancias por encima de lo esperado en Q1...",
+        "intl_in",
+        height=220,
+        placeholder="• Fed mantiene tasas sin cambio tras reunión de marzo...\n• El oro alcanza nuevo máximo histórico por encima de US$3,000...\n- Apple reporta ganancias por encima de lo esperado en Q1...\n1. Nvidia supera estimaciones de Wall Street en resultados...",
         key="intl_input",
         label_visibility="collapsed",
     )
 
-    col1, _ = st.columns([1, 4])
+    col1, col2, col3 = st.columns([1.2, 1, 6])
     with col1:
-        gen_intl = st.button("✨ Generar resumen", key="btn_intl", use_container_width=True)
+        gen_intl = st.button("▶ GENERAR", key="btn_intl", use_container_width=True)
+    with col2:
+        if st.button("✕ LIMPIAR", key="clr_intl", use_container_width=True):
+            st.session_state.pop("intl_result", None)
+            st.rerun()
 
     if gen_intl:
-        if not api_key:
-            st.error("⚠️ Ingresa tu Gemini API Key en el panel lateral.")
-        elif not intl_input.strip():
-            st.warning("Pega al menos una noticia con bullet.")
+        if not intl_input.strip():
+            st.warning("Pega al menos una noticia.")
         else:
-            with st.spinner("Generando resúmenes..."):
+            with st.spinner("Procesando noticias internacionales..."):
                 try:
-                    st.session_state["intl_result"] = call_gemini(api_key, PROMPT_INTL, intl_input)
+                    st.session_state["intl_result"] = call_gemini(PROMPT_INTL, intl_input)
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(str(e))
 
     if st.session_state.get("intl_result"):
-        st.markdown("**Resultado — haz clic, Ctrl+A y Ctrl+C para copiar:**")
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        st.markdown('<div class="bb-label">OUTPUT — RESULTADO (clic → Ctrl+A → Ctrl+C)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="output-area">', unsafe_allow_html=True)
         st.text_area(
-            "output_intl",
+            "out_intl",
             value=st.session_state["intl_result"],
-            height=300,
+            height=280,
             key="intl_output_area",
             label_visibility="collapsed",
         )
-        st.markdown('<div class="copy-hint">💡 Clic en el cuadro → Ctrl+A → Ctrl+C</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div class="bb-copy-hint">CLIC EN EL CUADRO · CTRL+A · CTRL+C</div>', unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 2 — Movers CNBC
 # ─────────────────────────────────────────────────────────────────────────────
 with tab2:
-    st.markdown('<div class="section-title">📊 Movers CNBC</div>', unsafe_allow_html=True)
-    st.markdown("Pega el texto de movers **en inglés**. Se traduce y aplica el formato institucional automáticamente.")
+    st.markdown("""
+    <div class="bb-section">
+        <div class="bb-section-label">02</div>
+        <div class="bb-section-title">Movers CNBC — Formato Institucional</div>
+        <div class="bb-section-line"></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="bb-label">INPUT — PEGA EL TEXTO DE MOVERS EN INGLÉS</div>', unsafe_allow_html=True)
 
     movers_input = st.text_area(
-        "Movers CNBC",
-        height=260,
-        placeholder="Apple (AAPL) shares rose 3.2% after the company reported better-than-expected earnings...\nTesla (TSLA) fell 5,1% following a disappointing delivery report...",
+        "mov_in",
+        height=220,
+        placeholder="Apple (AAPL) shares rose 3.2% after the company reported better-than-expected earnings of $2.40 per share...\nTesla (TSLA) fell 5,1% following a disappointing delivery report for Q1...\nNvidia (NVDA) surged 8% after announcing new AI chip lineup...",
         key="movers_input",
         label_visibility="collapsed",
     )
 
-    col1, _ = st.columns([1, 4])
+    col1, col2, col3 = st.columns([1.2, 1, 6])
     with col1:
-        gen_movers = st.button("✨ Generar resumen", key="btn_movers", use_container_width=True)
+        gen_movers = st.button("▶ GENERAR", key="btn_movers", use_container_width=True)
+    with col2:
+        if st.button("✕ LIMPIAR", key="clr_movers", use_container_width=True):
+            st.session_state.pop("movers_result", None)
+            st.rerun()
 
     if gen_movers:
-        if not api_key:
-            st.error("⚠️ Ingresa tu Gemini API Key en el panel lateral.")
-        elif not movers_input.strip():
+        if not movers_input.strip():
             st.warning("Pega el texto de movers CNBC.")
         else:
             with st.spinner("Procesando movers CNBC..."):
                 try:
-                    st.session_state["movers_result"] = call_gemini(api_key, PROMPT_MOVERS, movers_input)
+                    st.session_state["movers_result"] = call_gemini(PROMPT_MOVERS, movers_input)
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(str(e))
 
     if st.session_state.get("movers_result"):
-        st.markdown("**Vista previa con formato:**")
-        st.markdown(st.session_state["movers_result"])
-        st.markdown("**Para copiar (texto plano con markdown):**")
-        st.text_area(
-            "output_movers",
-            value=st.session_state["movers_result"],
-            height=260,
-            key="movers_output_area",
-            label_visibility="collapsed",
-        )
-        st.markdown('<div class="copy-hint">💡 Clic en el cuadro → Ctrl+A → Ctrl+C</div>', unsafe_allow_html=True)
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+        col_prev, col_copy = st.columns(2)
+
+        with col_prev:
+            st.markdown('<div class="bb-label">PREVIEW — VISTA CON FORMATO</div>', unsafe_allow_html=True)
+            # Render con fondo oscuro
+            preview_html = st.session_state["movers_result"].replace("\n", "<br>")
+            st.markdown(f"""
+            <div style="
+                background:#070707;
+                border:1px solid #1e1e1e;
+                border-left:3px solid #ff6600;
+                padding:16px 20px;
+                font-family:'IBM Plex Mono',monospace;
+                font-size:0.8rem;
+                line-height:1.9;
+                color:#d4d4d4;
+                min-height:200px;
+            ">{preview_html}</div>
+            """, unsafe_allow_html=True)
+
+        with col_copy:
+            st.markdown('<div class="bb-label">OUTPUT — PARA COPIAR (Ctrl+A → Ctrl+C)</div>', unsafe_allow_html=True)
+            st.markdown('<div class="output-area">', unsafe_allow_html=True)
+            st.text_area(
+                "out_movers",
+                value=st.session_state["movers_result"],
+                height=260,
+                key="movers_output_area",
+                label_visibility="collapsed",
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('<div class="bb-copy-hint">CLIC EN EL CUADRO · CTRL+A · CTRL+C</div>', unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 3 — BMV / BIVA
 # ─────────────────────────────────────────────────────────────────────────────
 with tab3:
-    st.markdown('<div class="section-title">🇲🇽 Noticias BMV / BIVA — Resúmenes Individuales</div>', unsafe_allow_html=True)
-    st.markdown("Agrega hasta **10 noticias**. Cada una se resume de forma independiente.")
+    st.markdown("""
+    <div class="bb-section">
+        <div class="bb-section-label">03</div>
+        <div class="bb-section-title">Noticias BMV / BIVA — Resúmenes Individuales</div>
+        <div class="bb-section-line"></div>
+    </div>
+    """, unsafe_allow_html=True)
 
     if "bmv_count" not in st.session_state:
         st.session_state["bmv_count"] = 3
 
-    col_add, col_rem, _ = st.columns([1.3, 1.3, 5])
+    col_add, col_rem, col_info = st.columns([1, 1, 6])
     with col_add:
-        if st.button("➕ Agregar", key="add_bmv"):
+        if st.button("+ NOTICIA", key="add_bmv", use_container_width=True):
             if st.session_state["bmv_count"] < 10:
                 st.session_state["bmv_count"] += 1
     with col_rem:
-        if st.button("➖ Quitar", key="rem_bmv"):
+        if st.button("− QUITAR", key="rem_bmv", use_container_width=True):
             if st.session_state["bmv_count"] > 1:
                 st.session_state["bmv_count"] -= 1
                 st.session_state.pop(f"bmv_result_{st.session_state['bmv_count']}", None)
+    with col_info:
+        st.markdown(f"""
+        <div style="padding:8px 0">
+            <span class="bb-pill">SLOTS ACTIVOS <span>{st.session_state['bmv_count']}/10</span></span>
+            <span class="bb-pill">MAX <span>10 NOTICIAS</span></span>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.markdown("---")
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     bmv_texts = []
     for i in range(st.session_state["bmv_count"]):
-        st.markdown(f"**Noticia {i+1}**")
+        st.markdown(f'<div class="bb-label">NOTICIA {i+1:02d}</div>', unsafe_allow_html=True)
         text = st.text_area(
-            f"noticia_{i+1}",
-            height=110,
+            f"bmv_in_{i}",
+            height=100,
             placeholder=f"Pega aquí la noticia {i+1} de BMV/BIVA...",
             key=f"bmv_input_{i}",
             label_visibility="collapsed",
         )
         bmv_texts.append(text)
+        if i < st.session_state["bmv_count"] - 1:
+            st.markdown("<hr>", unsafe_allow_html=True)
 
-    st.markdown("---")
-    col1, _ = st.columns([1, 4])
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1.5, 1, 5.5])
     with col1:
-        gen_bmv = st.button("✨ Generar resúmenes", key="btn_bmv", use_container_width=True)
+        gen_bmv = st.button("▶ GENERAR TODOS", key="btn_bmv", use_container_width=True)
+    with col2:
+        if st.button("✕ LIMPIAR", key="clr_bmv", use_container_width=True):
+            for i in range(10):
+                st.session_state.pop(f"bmv_result_{i}", None)
+            st.rerun()
 
     if gen_bmv:
-        if not api_key:
-            st.error("⚠️ Ingresa tu Gemini API Key en el panel lateral.")
+        filled = [(i, t) for i, t in enumerate(bmv_texts) if t.strip()]
+        if not filled:
+            st.warning("Pega al menos una noticia.")
         else:
-            filled = [(i, t) for i, t in enumerate(bmv_texts) if t.strip()]
-            if not filled:
-                st.warning("Pega al menos una noticia.")
-            else:
-                progress = st.progress(0, text="Procesando noticias...")
-                for idx, (i, text) in enumerate(filled):
-                    progress.progress((idx + 1) / len(filled), text=f"Resumiendo noticia {i+1} de {len(filled)}...")
-                    try:
-                        st.session_state[f"bmv_result_{i}"] = call_gemini(api_key, PROMPT_BMV, text)
-                    except Exception as e:
-                        st.session_state[f"bmv_result_{i}"] = f"❌ Error: {e}"
-                progress.empty()
-                st.success(f"✅ {len(filled)} resumen(es) generado(s).")
+            progress = st.progress(0, text="")
+            for idx, (i, text) in enumerate(filled):
+                pct = (idx + 1) / len(filled)
+                progress.progress(pct, text=f"Procesando noticia {i+1}/{len(filled)}...")
+                try:
+                    st.session_state[f"bmv_result_{i}"] = call_gemini(PROMPT_BMV, text)
+                except Exception as e:
+                    st.session_state[f"bmv_result_{i}"] = f"ERROR: {e}"
+            progress.empty()
 
     any_result = any(f"bmv_result_{i}" in st.session_state for i in range(st.session_state["bmv_count"]))
     if any_result:
-        st.markdown("### 📋 Resúmenes")
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+        st.markdown("""
+        <div class="bb-section">
+            <div class="bb-section-label">OUT</div>
+            <div class="bb-section-title">Resúmenes Generados</div>
+            <div class="bb-section-line"></div>
+        </div>
+        """, unsafe_allow_html=True)
+
         all_summaries = []
         for i in range(st.session_state["bmv_count"]):
             key = f"bmv_result_{i}"
             if key in st.session_state:
                 r = st.session_state[key]
                 all_summaries.append(r)
-                with st.expander(f"Noticia {i+1}", expanded=True):
+                with st.expander(f"NOTICIA {i+1:02d}", expanded=True):
+                    st.markdown('<div class="output-area">', unsafe_allow_html=True)
                     st.text_area(
-                        f"res_{i}",
+                        f"out_bmv_{i}",
                         value=r,
-                        height=90,
+                        height=85,
                         key=f"bmv_out_{i}",
                         label_visibility="collapsed",
                     )
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-        if len(all_summaries) > 1:
-            st.markdown("**Todos los resúmenes juntos:**")
+        if len(all_summaries) >= 1:
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            st.markdown('<div class="bb-label">TODOS LOS RESÚMENES JUNTOS (Ctrl+A → Ctrl+C)</div>', unsafe_allow_html=True)
+            st.markdown('<div class="output-area">', unsafe_allow_html=True)
             st.text_area(
                 "bmv_all",
                 value="\n\n".join(all_summaries),
@@ -369,4 +652,23 @@ with tab3:
                 key="bmv_all_output",
                 label_visibility="collapsed",
             )
-            st.markdown('<div class="copy-hint">💡 Clic en el cuadro → Ctrl+A → Ctrl+C</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('<div class="bb-copy-hint">CLIC EN EL CUADRO · CTRL+A · CTRL+C</div>', unsafe_allow_html=True)
+
+# ── Footer ────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div style="
+    margin-top: 40px;
+    padding: 12px 0;
+    border-top: 1px solid #1a1a1a;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    color: #2a2a2a;
+    letter-spacing: 1px;
+    display: flex;
+    justify-content: space-between;
+">
+    <span>MORNING BRIEF · USO INTERNO · NO DISTRIBUIR</span>
+    <span>POWERED BY GEMINI 1.5 FLASH · FREE TIER</span>
+</div>
+""", unsafe_allow_html=True)
