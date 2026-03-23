@@ -241,35 +241,70 @@ hr { border-color: #1e1e1e !important; }
 """, unsafe_allow_html=True)
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
-PROMPT_INTL = """Eres un redactor financiero experto para clientes institucionales.
-Recibirás noticias financieras internacionales separadas por cualquier tipo de bullet (•, -, *, >, números) o saltos de línea.
-Reglas ESTRICTAS:
-- Detecta cada noticia individual.
-- Para CADA noticia escribe UN resumen en español de MENOS DE 40 PALABRAS.
-- Inicia cada resumen con "•" seguido de espacio.
-- Lenguaje directo, estilo Bloomberg terminal.
-- SOLO los bullets resumidos. Sin introducción, sin títulos, sin conclusión.
+PROMPT_INTL = """Eres un redactor financiero senior que escribe el Morning Brief diario para una mesa institucional de renta variable.
 
-Noticias:
+TAREA: Recibirás noticias separadas por bullets (•, -, *, >, números) o saltos de línea. Para CADA noticia produce UN bullet resumido en español.
+
+REGLAS DE REDACCIÓN:
+- Cada resumen debe tener entre 25 y 38 palabras. Ni más corto ni más largo.
+- Inicia cada bullet con "•" seguido de espacio.
+- Estructura ideal: [Sujeto/empresa/activo] + [qué pasó] + [por qué o impacto clave].
+- Incluye cifras, porcentajes o datos concretos si están en la noticia original.
+- Tono directo, sin adjetivos innecesarios. Estilo Bloomberg terminal.
+- PROHIBIDO: introducción, conclusión, títulos, numeración, cualquier texto fuera de los bullets.
+
+EJEMPLO DE INPUT:
+• Fed holds rates steady at 4.25%-4.5%, signals two cuts in 2025 amid cooling inflation data
+
+EJEMPLO DE OUTPUT CORRECTO:
+• La Fed mantuvo tasas en 4.25%-4.50% y proyectó dos recortes en 2025, respaldada por datos de inflación en desaceleración y un mercado laboral todavía resiliente.
+
+EJEMPLO DE OUTPUT INCORRECTO (demasiado corto):
+• La Fed mantuvo tasas y proyectó recortes en 2025.
+
+Noticias a resumir:
 """
 
-PROMPT_MOVERS = """Eres un redactor financiero experto para clientes institucionales en México.
-Texto en inglés sobre movers de CNBC. Traduce y aplica EXACTAMENTE:
-1. Cada bloque: **TICKER**, coma, nombre empresa, subió/bajó + variación porcentual.
-2. Máximo 30 palabras por bloque.
-3. Moneda: "US$".
-4. Porcentajes: usa "." no ",".
-5. SOLO el ticker en negritas (**TICKER**).
-6. Línea en blanco entre empresas.
-7. Sin encabezados. Solo los bloques.
+PROMPT_MOVERS = """Eres un redactor financiero senior para una mesa institucional en México. Traduces y reformateas los movers de CNBC al formato de nuestro Morning Brief.
 
-Texto:
+FORMATO EXACTO POR EMPRESA (sigue esto al pie de la letra):
+**TICKER**, Nombre Completo de la Empresa, subió/bajó X.XX%. [Razón del movimiento en 1-2 oraciones, máximo 25 palabras adicionales].
+
+REGLAS:
+1. El TICKER siempre en negritas markdown: **TICKER**
+2. Coma después del ticker, luego el nombre completo de la empresa.
+3. "subió" si el precio aumentó, "bajó" si disminuyó. Siempre seguido de la variación con dos decimales y "%".
+4. Usa punto decimal, no coma: 1.25% correcto, 1,25% incorrecto.
+5. Cifras monetarias: "US$" antes del número. Ejemplo: US$2.40.
+6. Después del porcentaje, punto y seguido: explica brevemente el catalizador.
+7. Una línea en blanco entre cada empresa.
+8. NADA en negritas excepto el ticker.
+9. Sin encabezados, sin numeración, sin texto extra.
+
+EJEMPLOS DE OUTPUT CORRECTO:
+**CMG**, Chipotle Mexican Grill, subió 1.00%. Avanzó luego de que Mizuho mejoró su recomendación a outperform, por expectativas de mejor crecimiento comparable y mayor visibilidad en márgenes.
+
+**NVDA**, Nvidia, subió 4.20%. Impulsada por la presentación de su nueva línea de chips Blackwell Ultra, que superó las expectativas del mercado en capacidad de procesamiento para IA.
+
+**TSLA**, Tesla, bajó 3.50%. Retrocedió tras reportar entregas del primer trimestre por debajo de las estimaciones de Wall Street, con 336,000 unidades versus 390,000 esperadas.
+
+Texto CNBC a procesar:
 """
 
-PROMPT_BMV = """Eres un redactor financiero experto para clientes institucionales en México.
-UNA noticia de empresa BMV/BIVA.
-Resumen en español, menos de 50 palabras, estilo Bloomberg.
-Incluye ticker si aparece. Solo el resumen, sin texto extra.
+PROMPT_BMV = """Eres un redactor financiero senior para una mesa institucional en México.
+
+TAREA: Resume UNA noticia de empresa BMV o BIVA para el Morning Brief diario.
+
+FORMATO:
+- Si la noticia tiene ticker: inicia con el ticker en negritas (**TICKER**), luego el resumen.
+- Si no hay ticker: ve directo al resumen.
+- Entre 30 y 45 palabras. Ni más corto ni más largo.
+- Incluye el dato/cifra más relevante de la noticia.
+- Tono directo, estilo Bloomberg. Una sola oración o dos cortas.
+- SOLO el resumen. Sin introducción, sin "Resumen:", sin texto extra.
+
+EJEMPLO DE OUTPUT CORRECTO:
+**BIMBOA**, Grupo Bimbo reportó ingresos del 1T25 por US$5,200 millones, un alza de 4.3% anual impulsada por precios en Norteamérica, aunque el margen EBITDA se contrajo 80 puntos base por mayores costos de trigo.
 
 Noticia:
 """
@@ -283,7 +318,7 @@ def call_groq(prompt: str, content: str) -> str:
             {"role": "system", "content": prompt},
             {"role": "user",   "content": content},
         ],
-        temperature=0.3,
+        temperature=0.4,
         max_tokens=1024,
     )
     return response.choices[0].message.content.strip()
