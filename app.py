@@ -433,51 +433,144 @@ with tab1:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="bb-label">INPUT — PEGA LAS NOTICIAS (bullets •  -  *  números, o una por línea)</div>', unsafe_allow_html=True)
+    # ── PASO 1: pegar texto ───────────────────────────────────────────────────
+    st.markdown('<div class="bb-label">PASO 1 — PEGA EL TEXTO (párrafos, bullets •  -  *  números, cualquier formato)</div>', unsafe_allow_html=True)
 
-    intl_input = st.text_area(
-        "intl_in",
-        height=220,
-        placeholder="• Fed mantiene tasas sin cambio tras reunión de marzo...\n• El oro alcanza nuevo máximo histórico por encima de US$3,000...\n- Apple reporta ganancias por encima de lo esperado en Q1...\n1. Nvidia supera estimaciones de Wall Street en resultados trimestrales...",
-        key="intl_input",
+    intl_raw = st.text_area(
+        "intl_raw",
+        height=180,
+        placeholder="Pega aquí el bloque de texto. Puede ser párrafos corridos, bullets, numerados, o mezcla de formatos...\n\nEjemplo:\nLos futuros de Wall Street subían antes de la decisión de tasas de la Fed. El dólar se debilitaba...\nLa muerte de Ali Larijani deja el liderazgo iraní en manos de sectores radicales...",
+        key="intl_raw_input",
         label_visibility="collapsed",
     )
 
-    col1, col2, _ = st.columns([1.2, 1, 6])
-    with col1:
-        gen_intl = st.button("▶  GENERAR", key="btn_intl", use_container_width=True)
-    with col2:
-        if st.button("✕  LIMPIAR", key="clr_intl", use_container_width=True):
-            st.session_state.pop("intl_result", None)
+    col_detect, col_reset, _ = st.columns([1.5, 1, 5.5])
+    with col_detect:
+        detect_btn = st.button("⚡  DETECTAR NOTICIAS", key="btn_detect", use_container_width=True)
+    with col_reset:
+        if st.button("✕  RESET", key="clr_intl_all", use_container_width=True):
+            for k in ["intl_items", "intl_result", "intl_time"]:
+                st.session_state.pop(k, None)
             st.rerun()
 
-    if gen_intl:
-        if not st.session_state.get("groq_api_key"):
-            st.error("⚠ Pega tu Groq API Key en el campo de arriba.")
-        elif not intl_input.strip():
-            st.warning("Pega al menos una noticia.")
-        else:
-            with st.spinner("Generando..."):
-                try:
-                    t0 = time.time()
-                    st.session_state["intl_result"] = call_groq(PROMPT_INTL, intl_input)
-                    st.session_state["intl_time"] = round(time.time() - t0, 1)
-                except Exception as e:
-                    st.error(f"Error: {e}")
+    # ── Detección de párrafos/bullets ────────────────────────────────────────
+    import re as _re
 
-    if st.session_state.get("intl_result"):
-        t = st.session_state.get("intl_time", "")
-        st.markdown(f'<div class="bb-label">OUTPUT — GENERADO EN {t}s · CLIC → CTRL+A → CTRL+C</div>', unsafe_allow_html=True)
-        st.markdown('<div class="output-area">', unsafe_allow_html=True)
-        st.text_area(
-            "out_intl",
-            value=st.session_state["intl_result"],
-            height=280,
-            key="intl_output_area",
-            label_visibility="collapsed",
+    def detect_items(text: str) -> list:
+        """Divide el texto en noticias individuales detectando bullets o párrafos."""
+        text = text.strip()
+        # Si tiene bullets/numeración explícita, separar por ellos
+        bullet_pattern = _re.compile(
+            r'(?:^|\n)\s*(?:[•\-\*>]|\d+[.)])\s+',
         )
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('<div class="bb-copy-hint">CLIC EN EL CUADRO · CTRL+A · CTRL+C</div>', unsafe_allow_html=True)
+        if bullet_pattern.search(text):
+            parts = bullet_pattern.split(text)
+            items = [p.strip().replace("\n", " ") for p in parts if p.strip()]
+        else:
+            # Párrafos: separar por doble salto de línea o salto simple
+            raw_parts = _re.split(r'\n{2,}|\n', text)
+            # Unir líneas cortas que probablemente son continuación
+            items = []
+            buffer = ""
+            for part in raw_parts:
+                part = part.strip()
+                if not part:
+                    if buffer:
+                        items.append(buffer.strip())
+                        buffer = ""
+                    continue
+                if len(part) < 60 and buffer:
+                    buffer += " " + part
+                else:
+                    if buffer:
+                        items.append(buffer.strip())
+                    buffer = part
+            if buffer:
+                items.append(buffer.strip())
+        return [i for i in items if len(i) > 20]
+
+    if detect_btn:
+        if not intl_raw.strip():
+            st.warning("Pega el texto primero.")
+        else:
+            items = detect_items(intl_raw)
+            st.session_state["intl_items"] = items
+            st.session_state.pop("intl_result", None)
+
+    # ── PASO 2: revisar y editar items ────────────────────────────────────────
+    if st.session_state.get("intl_items"):
+        items = st.session_state["intl_items"]
+
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="bb-label">PASO 2 — REVISA Y EDITA — {len(items)} NOTICIA(S) DETECTADA(S) · DESMARCA LAS QUE NO QUIERAS INCLUIR</div>',
+            unsafe_allow_html=True
+        )
+
+        # Checkboxes + edición por item
+        selected_items = []
+        for i, item in enumerate(items):
+            col_chk, col_txt = st.columns([0.35, 7])
+            with col_chk:
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                include = st.checkbox(" ", value=True, key=f"intl_chk_{i}")
+            with col_txt:
+                edited = st.text_area(
+                    f"item_{i}",
+                    value=item,
+                    height=80,
+                    key=f"intl_item_{i}",
+                    label_visibility="collapsed",
+                )
+            if include:
+                selected_items.append(edited)
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="bb-label" style="color:#ff6600">{len(selected_items)} DE {len(items)} NOTICIAS SELECCIONADAS</div>',
+            unsafe_allow_html=True
+        )
+
+        # ── PASO 3: generar resumen ───────────────────────────────────────────
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        col1, col2, _ = st.columns([1.5, 1, 5.5])
+        with col1:
+            gen_intl = st.button("▶  GENERAR RESUMEN", key="btn_intl", use_container_width=True)
+        with col2:
+            if st.button("✕  LIMPIAR OUTPUT", key="clr_intl", use_container_width=True):
+                st.session_state.pop("intl_result", None)
+                st.rerun()
+
+        if gen_intl:
+            if not st.session_state.get("groq_api_key"):
+                st.error("⚠ Pega tu Groq API Key en el campo de arriba.")
+            elif not selected_items:
+                st.warning("Selecciona al menos una noticia.")
+            else:
+                # Construir input con bullets para el modelo
+                intl_input = "\n".join(f"• {it}" for it in selected_items)
+                with st.spinner("Generando..."):
+                    try:
+                        t0 = time.time()
+                        st.session_state["intl_result"] = call_groq(PROMPT_INTL, intl_input)
+                        st.session_state["intl_time"] = round(time.time() - t0, 1)
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+        if st.session_state.get("intl_result"):
+            t = st.session_state.get("intl_time", "")
+            st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+            st.markdown(f'<div class="bb-label">OUTPUT — GENERADO EN {t}s · CLIC → CTRL+A → CTRL+C</div>', unsafe_allow_html=True)
+            st.markdown('<div class="output-area">', unsafe_allow_html=True)
+            st.text_area(
+                "out_intl",
+                value=st.session_state["intl_result"],
+                height=300,
+                key="intl_output_area",
+                label_visibility="collapsed",
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('<div class="bb-copy-hint">CLIC EN EL CUADRO · CTRL+A · CTRL+C</div>', unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
