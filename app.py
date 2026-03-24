@@ -239,7 +239,25 @@ hr { border-color: #1e1e1e !important; }
 # ── Prompts ───────────────────────────────────────────────────────────────────
 PROMPT_INTL = """Eres un redactor financiero senior que escribe el Morning Brief diario para una mesa institucional de renta variable.
 
-TAREA: Recibirás noticias separadas por bullets (•, -, *, >, números) o saltos de línea. Para CADA noticia produce UN bullet resumido en español.
+TAREA: Recibirás noticias separadas por bullets (•, -, *, >, números) o saltos de línea. Debes:
+1. Identificar el país o región de origen de cada noticia.
+2. Clasificarlas en dos grupos: EE.UU. y Resto del Mundo.
+3. Resumir cada noticia en español dentro de su grupo correspondiente.
+
+ESTRUCTURA DE OUTPUT (respeta exactamente este formato):
+== EE.UU. ==
+• [resumen noticia 1]
+• [resumen noticia 2]
+
+== Internacional ==
+• [resumen noticia 3]
+• [resumen noticia 4]
+
+REGLAS DE CLASIFICACIÓN:
+- EE.UU.: noticias sobre la Fed, empresas americanas, economía americana, mercados de EE.UU., política económica americana.
+- Internacional: cualquier noticia de otro país o región (Europa, Asia, América Latina, Medio Oriente, materias primas globales, etc.).
+- Si una noticia mezcla EE.UU. con otro país, clasifícala donde esté el sujeto principal de la acción.
+- Si solo hay noticias de un grupo, igual incluye ambos encabezados; en el vacío escribe: • Sin noticias en esta categoría.
 
 REGLAS DE REDACCIÓN:
 - Cada resumen debe tener entre 25 y 38 palabras. Ni más corto ni más largo.
@@ -247,16 +265,16 @@ REGLAS DE REDACCIÓN:
 - Estructura ideal: [Sujeto/empresa/activo] + [qué pasó] + [por qué o impacto clave].
 - Incluye cifras, porcentajes o datos concretos si están en la noticia original.
 - Tono directo, sin adjetivos innecesarios. Estilo Bloomberg terminal.
-- PROHIBIDO: introducción, conclusión, títulos, numeración, cualquier texto fuera de los bullets.
-
-EJEMPLO DE INPUT:
-• Fed holds rates steady at 4.25%-4.5%, signals two cuts in 2025 amid cooling inflation data
+- PROHIBIDO: cualquier texto fuera de los encabezados y bullets. Sin introducción, sin conclusión.
 
 EJEMPLO DE OUTPUT CORRECTO:
+== EE.UU. ==
 • La Fed mantuvo tasas en 4.25%-4.50% y proyectó dos recortes en 2025, respaldada por datos de inflación en desaceleración y un mercado laboral todavía resiliente.
+• Apple reportó ingresos del 2T25 por US$94,000 millones, superando estimaciones del consenso en 3.2%, impulsada por servicios y ventas del iPhone en mercados emergentes.
 
-EJEMPLO DE OUTPUT INCORRECTO (demasiado corto):
-• La Fed mantuvo tasas y proyectó recortes en 2025.
+== Internacional ==
+• El Banco Central Europeo recortó tasas 25 puntos base a 2.25%, señalando que la desinflación en la eurozona avanza más rápido de lo previsto por el consenso de analistas.
+• Aramco reportó utilidad neta de US$26,000 millones en el 1T25, una caída de 4.6% anual, presionada por menores precios del crudo y producción acotada por acuerdos OPEP+.
 
 Noticias a resumir:
 """
@@ -501,7 +519,9 @@ with tab2:
             with st.spinner("Generando..."):
                 try:
                     t0 = time.time()
-                    st.session_state["movers_result"] = call_groq(PROMPT_MOVERS, movers_input)
+                    raw = call_groq(PROMPT_MOVERS, movers_input)
+                    # Eliminar líneas en blanco entre párrafos
+                    st.session_state["movers_result"] = "\n".join(line for line in raw.splitlines() if line.strip())
                     st.session_state["movers_time"] = round(time.time() - t0, 1)
                 except Exception as e:
                     st.error(f"Error: {e}")
